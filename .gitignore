@@ -1,0 +1,4 @@
+.rpt2_cache/
+local.env
+node_modules/
+yarn-error.log
