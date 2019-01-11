@@ -23,6 +23,49 @@ function main() {
     })
   );
 
+  async function updateTicketsWithGithubInfo() {
+    // These jerks overwrote window.fetch
+    // @ts-ignore
+    window.require("atlassian/analytics/user-activity-xhr-header").uninstall();
+
+    try {
+      // Get the data
+      const prs = await service.getPRs();
+      const reviewSets = await Promise.all(prs.map(pr => service.getReviews(pr.url)));
+      const ticketData: service.TPull[] = prs.map((pr, i) => ({
+        ...pr,
+        reviews: {
+          ...pr.reviews,
+          ...reviewSets[i]
+        }
+      }));
+
+      // Render html into each ticket
+      ticketData.forEach(t => {
+        const childTarget = document.querySelector(`.ghx-key > a[title="${t.ticketID}"]`);
+        if (childTarget === null) {
+          logError("Couldn't find child target", t);
+          return;
+        }
+
+        const target = parents(childTarget, ".ghx-issue-content");
+        if (target === false) {
+          logError("Couldn't find parent of target");
+          return;
+        }
+
+        renderToDOM(ticketNotes(t), target[0]);
+      });
+    } catch (error) {
+      logError(error);
+    }
+
+    // Hand over fetch to jira
+    // @ts-ignore
+    window.require("atlassian/analytics/user-activity-xhr-header").install();
+  }
+
+  // Add the stylesheet
   const s = document.createElement("style");
   s.type = "text/css";
   s.appendChild(document.createTextNode(getStyles()));
@@ -33,6 +76,10 @@ function main() {
 
 ///////////////////////
 
+/**
+ * Return the styles we need to make this thing look ok on a
+ * jira board
+ */
 function getStyles() {
   return `
     .ghx-issue-content .github-info {
@@ -63,49 +110,6 @@ function getStyles() {
       text-shadow: 0 0 1px white;
     }
   `;
-
-
-}
-
-async function updateTicketsWithGithubInfo() {
-  // These jerks overwrote window.fetch
-  // @ts-ignore
-  window.require("atlassian/analytics/user-activity-xhr-header").uninstall();
-
-  try {
-    // Get the data
-    const prs = await service.getPRs();
-    const reviewSets = await Promise.all(prs.map(pr => service.getReviews(pr.url)));
-    const ticketData: service.TPull[] = prs.map((pr, i) => ({
-      ...pr,
-      reviews: {
-        ...pr.reviews,
-        ...reviewSets[i]
-      }
-    }));
-
-    // Render html into each ticket
-    ticketData.forEach(t => {
-      const childTarget = document.querySelector(`.ghx-key > a[title="${t.ticketID}"]`);
-      if (childTarget === null) {
-        logError("Couldn't find child target");
-        return;
-      }
-
-      const target = parents(childTarget, ".ghx-issue-content");
-      if (target === false) {
-        logError("Couldn't find parent of target");
-        return;
-      }
-
-      renderToDOM(ticketNotes(t), target[0]);
-    });
-  } catch (error) {
-    logError(error);
-  }
-
-  // @ts-ignore
-  window.require("atlassian/analytics/user-activity-xhr-header").install();
 }
 
 // The dom we are building out

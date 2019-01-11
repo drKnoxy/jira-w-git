@@ -18,6 +18,9 @@ type hProps = {
   [attr: string]: any;
 };
 
+/**
+ * Kinda like React.createElement
+ */
 export function h(type: string, props: hProps): HTMLElement {
   const { children = [], className = "", ...rest } = props;
   const el = document.createElement(type);

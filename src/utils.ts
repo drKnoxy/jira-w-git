@@ -1,3 +1,6 @@
+/**
+ * Find a parent based on selector
+ */
 export function parents(elem: any, selector: string) {
   var firstChar = selector.charAt(0);
   var parents = [];

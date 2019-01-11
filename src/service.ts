@@ -1,4 +1,4 @@
-import { key, username } from "./keys";
+import { key, username, repo, prTitleRegex } from "./keys";
 
 // Service work
 type PRstates = "APPROVED" | "PENDING" | "REQUEST_CHANGES";
@@ -51,46 +51,46 @@ export type TPull = {
   reviews: TReviews;
 };
 export const getPRs = (): Promise<TPull[]> => {
-  return get<RESPONSE_PULLS>("https://api.github.com/repos/BoomTownROI/flagship-cutter/pulls").then(
-    formatPRResponse
-  );
+  return get<RESPONSE_PULLS>(`https://api.github.com/repos/${repo}/pulls`).then(formatPRResponse);
 
   function formatPRResponse(prs: RESPONSE_PULLS): TPull[] {
-    return prs.map(pr => {
-      const reviews: TReviews = [...pr.assignees, ...pr.requested_reviewers]
-        .filter(a => a.id !== pr.user.id)
-        .reduce(
-          (prev, a) => ({
-            ...prev,
-            [a.id]: {
-              photo: a.avatar_url,
-              displayName: a.login,
-              state: API_STATES.PENDING
-            }
-          }),
-          {}
-        );
+    return prs
+      .map(pr => {
+        const reviews: TReviews = [...pr.assignees, ...pr.requested_reviewers]
+          .filter(a => a.id !== pr.user.id)
+          .reduce(
+            (prev, a) => ({
+              ...prev,
+              [a.id]: {
+                photo: a.avatar_url,
+                displayName: a.login,
+                state: API_STATES.PENDING
+              }
+            }),
+            {}
+          );
 
-      let ticketID: string;
-      const parsedID = pr.title.match(/^CNS-[\d]+/);
-      if (parsedID === null) {
-        console.warn("Couldn't parse id from ticket title", { ...pr });
-        ticketID = "---";
-      } else {
-        ticketID = parsedID[0];
-      }
+        let ticketID: string;
+        const parsedID = pr.title.match(prTitleRegex);
+        if (parsedID === null) {
+          console.warn("Couldn't parse id from ticket title", { ...pr });
+          ticketID = "skip";
+        } else {
+          ticketID = parsedID[0];
+        }
 
-      return {
-        ticketID,
-        title: pr.title,
-        owner: {
-          photo: pr.user.avatar_url,
-          displayName: pr.user.login
-        },
-        reviews,
-        url: pr.url
-      };
-    });
+        return {
+          ticketID,
+          title: pr.title,
+          owner: {
+            photo: pr.user.avatar_url,
+            displayName: pr.user.login
+          },
+          reviews,
+          url: pr.url
+        };
+      })
+      .filter(t => t.ticketID === "skip");
   }
 };
 

@@ -1,6 +1,10 @@
-// User specific
+// Your GitHub key
 const username = "YOUR_USERNAME";
 const key = "YOUR_KEY";
+// owner/project ie. drKnoxy/jira-w-github
+const repo = "YOUR_COMPANY/YOUR_REPO";
+// regex to scrape ticket name from pr title
+const prTitleRegex = /^CNS-[\d]+/;
 
 const API_STATES = {
     APPROVED: "APPROVED",
@@ -15,9 +19,10 @@ const get = (url) => fetch(url, {
     }
 }).then(res => res.json());
 const getPRs = () => {
-    return get("https://api.github.com/repos/BoomTownROI/flagship-cutter/pulls").then(formatPRResponse);
+    return get(`https://api.github.com/repos/${repo}/pulls`).then(formatPRResponse);
     function formatPRResponse(prs) {
-        return prs.map(pr => {
+        return prs
+            .map(pr => {
             const reviews = [...pr.assignees, ...pr.requested_reviewers]
                 .filter(a => a.id !== pr.user.id)
                 .reduce((prev, a) => (Object.assign({}, prev, { [a.id]: {
@@ -26,10 +31,10 @@ const getPRs = () => {
                     state: API_STATES.PENDING
                 } })), {});
             let ticketID;
-            const parsedID = pr.title.match(/^CNS-[\d]+/);
+            const parsedID = pr.title.match(prTitleRegex);
             if (parsedID === null) {
                 console.warn("Couldn't parse id from ticket title", Object.assign({}, pr));
-                ticketID = "---";
+                ticketID = "skip";
             }
             else {
                 ticketID = parsedID[0];
@@ -44,7 +49,8 @@ const getPRs = () => {
                 reviews,
                 url: pr.url
             };
-        });
+        })
+            .filter(t => t.ticketID === "skip");
     }
 };
 const getReviews = (prURL) => {
@@ -100,6 +106,9 @@ function renderToDOM(tree, el) {
     const wrapper = h("div", { className: MOUNT_KEY, children: [tree] });
     el.appendChild(wrapper);
 }
+/**
+ * Kinda like React.createElement
+ */
 function h(type, props) {
     const { children = [], className = "" } = props, rest = __rest(props, ["children", "className"]);
     const el = document.createElement(type);
@@ -115,6 +124,9 @@ function h(type, props) {
     return el;
 }
 
+/**
+ * Find a parent based on selector
+ */
 function parents(elem, selector) {
     var firstChar = selector.charAt(0);
     var parents = [];
@@ -162,6 +174,38 @@ function main() {
         innerText: "↯ Github",
         onclick: () => updateTicketsWithGithubInfo()
     }));
+    async function updateTicketsWithGithubInfo() {
+        // These jerks overwrote window.fetch
+        // @ts-ignore
+        window.require("atlassian/analytics/user-activity-xhr-header").uninstall();
+        try {
+            // Get the data
+            const prs = await getPRs();
+            const reviewSets = await Promise.all(prs.map(pr => getReviews(pr.url)));
+            const ticketData = prs.map((pr, i) => (Object.assign({}, pr, { reviews: Object.assign({}, pr.reviews, reviewSets[i]) })));
+            // Render html into each ticket
+            ticketData.forEach(t => {
+                const childTarget = document.querySelector(`.ghx-key > a[title="${t.ticketID}"]`);
+                if (childTarget === null) {
+                    logError("Couldn't find child target", t);
+                    return;
+                }
+                const target = parents(childTarget, ".ghx-issue-content");
+                if (target === false) {
+                    logError("Couldn't find parent of target");
+                    return;
+                }
+                renderToDOM(ticketNotes(t), target[0]);
+            });
+        }
+        catch (error) {
+            logError(error);
+        }
+        // Hand over fetch to jira
+        // @ts-ignore
+        window.require("atlassian/analytics/user-activity-xhr-header").install();
+    }
+    // Add the stylesheet
     const s = document.createElement("style");
     s.type = "text/css";
     s.appendChild(document.createTextNode(getStyles()));
@@ -169,6 +213,10 @@ function main() {
     document.head.appendChild(s);
 }
 ///////////////////////
+/**
+ * Return the styles we need to make this thing look ok on a
+ * jira board
+ */
 function getStyles() {
     return `
     .ghx-issue-content .github-info {
@@ -199,36 +247,6 @@ function getStyles() {
       text-shadow: 0 0 1px white;
     }
   `;
-}
-async function updateTicketsWithGithubInfo() {
-    // These jerks overwrote window.fetch
-    // @ts-ignore
-    window.require("atlassian/analytics/user-activity-xhr-header").uninstall();
-    try {
-        // Get the data
-        const prs = await getPRs();
-        const reviewSets = await Promise.all(prs.map(pr => getReviews(pr.url)));
-        const ticketData = prs.map((pr, i) => (Object.assign({}, pr, { reviews: Object.assign({}, pr.reviews, reviewSets[i]) })));
-        // Render html into each ticket
-        ticketData.forEach(t => {
-            const childTarget = document.querySelector(`.ghx-key > a[title="${t.ticketID}"]`);
-            if (childTarget === null) {
-                logError("Couldn't find child target");
-                return;
-            }
-            const target = parents(childTarget, ".ghx-issue-content");
-            if (target === false) {
-                logError("Couldn't find parent of target");
-                return;
-            }
-            renderToDOM(ticketNotes(t), target[0]);
-        });
-    }
-    catch (error) {
-        logError(error);
-    }
-    // @ts-ignore
-    window.require("atlassian/analytics/user-activity-xhr-header").install();
 }
 // The dom we are building out
 function ticketNotes(props) {
