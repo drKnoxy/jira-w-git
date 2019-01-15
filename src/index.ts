@@ -5,23 +5,53 @@ import { parents, logError } from "./utils";
 main();
 
 function main() {
-  // Mount our sync button
-  const btnToolbar = document.querySelector(".ghx-view-section ");
+  mountGithubSyncButton();
+  onPushState(() => mountGithubSyncButton());
+  onPopState(() => mountGithubSyncButton());
 
-  // If JIRA hasn't fired up their app then try again in a tick
-  if (!btnToolbar) {
-    setTimeout(() => main(), 500);
-    return;
+  function mountGithubSyncButton() {
+    setTimeout(() => {
+      const btnToolbar = document.querySelector(".ghx-view-section");
+      if (!btnToolbar) {
+        logError("couldn't find toolbar");
+        return;
+      }
+
+      btnToolbar.prepend(GithubSyncButton());
+    }, 300);
   }
 
-  btnToolbar.prepend(
-    h("button", {
+  function GithubSyncButton({ innerText }: { innerText?: string } = {}): HTMLElement {
+    return h("button", {
       type: "button",
-      className: "aui-button",
-      innerText: "↯ Github",
-      onclick: () => updateTicketsWithGithubInfo()
-    })
-  );
+      className: "aui-button github-sync",
+      innerText: innerText || "↯ GitHub",
+      onclick: async () => {
+        replaceNode({
+          target: ".github-sync",
+          tree: GithubSyncButton({
+            innerText: "👯‍♀️ GitHub"
+          })
+        });
+
+        await updateTicketsWithGithubInfo();
+
+        replaceNode({
+          target: ".github-sync",
+          tree: GithubSyncButton()
+        });
+      }
+    });
+  }
+
+  function replaceNode({ tree, target }: { tree: HTMLElement; target: string }) {
+    const el = document.querySelector(target);
+    if (el === null) {
+      logError("Couldn't find node to replace");
+      return;
+    }
+    el.replaceWith(tree);
+  }
 
   async function updateTicketsWithGithubInfo() {
     // These jerks overwrote window.fetch
@@ -153,5 +183,22 @@ function ticketNotes(props: service.TPull) {
         })
       )
     ]
+  });
+}
+
+function onPushState(cb: () => void) {
+  const originalFn = window.history.pushState;
+  window.history.pushState = function() {
+    // @ts-ignore
+    const originalResp = originalFn.apply(this, arguments);
+    cb();
+
+    return originalResp;
+  };
+}
+
+function onPopState(cb: () => void) {
+  window.addEventListener("popstate", () => {
+    cb();
   });
 }

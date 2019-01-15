@@ -1,16 +1,16 @@
-// Your GitHub key
+// Credentials and Secret Stuff
 const username = "YOUR_USERNAME";
 const key = "YOUR_KEY";
-// owner/project ie. drKnoxy/jira-w-github
 const repo = "YOUR_COMPANY/YOUR_REPO";
-// regex to scrape ticket name from pr title
 const prTitleRegex = /^CNS-[\d]+/;
+////////////////////////////////////////////////
 
 const API_STATES = {
     APPROVED: "APPROVED",
     REQUEST_CHANGES: "REQUEST_CHANGES",
     PENDING: "PENDING"
 };
+const TICKET_ID_MISS = "skip";
 const get = (url) => fetch(url, {
     method: "GET",
     headers: {
@@ -24,23 +24,10 @@ const getPRs = () => {
         return prs
             .map(pr => {
             const reviews = [...pr.assignees, ...pr.requested_reviewers]
-                .filter(a => a.id !== pr.user.id)
-                .reduce((prev, a) => (Object.assign({}, prev, { [a.id]: {
-                    photo: a.avatar_url,
-                    displayName: a.login,
-                    state: API_STATES.PENDING
-                } })), {});
-            let ticketID;
-            const parsedID = pr.title.match(prTitleRegex);
-            if (parsedID === null) {
-                console.warn("Couldn't parse id from ticket title", Object.assign({}, pr));
-                ticketID = "skip";
-            }
-            else {
-                ticketID = parsedID[0];
-            }
+                .filter(r => removeReviewerWhoIsOwner(r, pr))
+                .reduce(combineAssigneesAndReviewers, {});
             return {
-                ticketID,
+                ticketID: parseTicketIDFromPR(pr),
                 title: pr.title,
                 owner: {
                     photo: pr.user.avatar_url,
@@ -50,7 +37,32 @@ const getPRs = () => {
                 url: pr.url
             };
         })
-            .filter(t => t.ticketID === "skip");
+            .filter(removeTicketsWithNoID);
+        function combineAssigneesAndReviewers(prev, r) {
+            return Object.assign({}, prev, { [r.id]: {
+                    photo: r.avatar_url,
+                    displayName: r.login,
+                    state: API_STATES.PENDING
+                } });
+        }
+        function removeReviewerWhoIsOwner(r, pr) {
+            return r.id !== pr.user.id;
+        }
+        function removeTicketsWithNoID(t) {
+            return t.ticketID !== TICKET_ID_MISS;
+        }
+        function parseTicketIDFromPR(pr) {
+            let ticketID;
+            const parsedID = pr.title.match(prTitleRegex);
+            if (parsedID === null) {
+                console.warn("Couldn't parse id from ticket title", Object.assign({}, pr));
+                ticketID = TICKET_ID_MISS;
+            }
+            else {
+                ticketID = parsedID[0];
+            }
+            return ticketID;
+        }
     }
 };
 const getReviews = (prURL) => {
@@ -161,19 +173,47 @@ function logError(...args) {
 
 main();
 function main() {
-    // Mount our sync button
-    const btnToolbar = document.querySelector(".ghx-view-section ");
-    // If JIRA hasn't fired up their app then try again in a tick
-    if (!btnToolbar) {
-        setTimeout(() => main(), 500);
-        return;
+    mountGithubSyncButton();
+    onPushState(() => mountGithubSyncButton());
+    onPopState(() => mountGithubSyncButton());
+    function mountGithubSyncButton() {
+        setTimeout(() => {
+            const btnToolbar = document.querySelector(".ghx-view-section");
+            if (!btnToolbar) {
+                logError("couldn't find toolbar");
+                return;
+            }
+            btnToolbar.prepend(GithubSyncButton());
+        }, 300);
     }
-    btnToolbar.prepend(h("button", {
-        type: "button",
-        className: "aui-button",
-        innerText: "↯ Github",
-        onclick: () => updateTicketsWithGithubInfo()
-    }));
+    function GithubSyncButton({ innerText } = {}) {
+        return h("button", {
+            type: "button",
+            className: "aui-button github-sync",
+            innerText: innerText || "↯ GitHub",
+            onclick: async () => {
+                replaceNode({
+                    target: ".github-sync",
+                    tree: GithubSyncButton({
+                        innerText: "👯‍♀️ GitHub"
+                    })
+                });
+                await updateTicketsWithGithubInfo();
+                replaceNode({
+                    target: ".github-sync",
+                    tree: GithubSyncButton()
+                });
+            }
+        });
+    }
+    function replaceNode({ tree, target }) {
+        const el = document.querySelector(target);
+        if (el === null) {
+            logError("Couldn't find node to replace");
+            return;
+        }
+        el.replaceWith(tree);
+    }
     async function updateTicketsWithGithubInfo() {
         // These jerks overwrote window.fetch
         // @ts-ignore
@@ -286,5 +326,19 @@ function ticketNotes(props) {
                 ]
             }))
         ]
+    });
+}
+function onPushState(cb) {
+    const originalFn = window.history.pushState;
+    window.history.pushState = function () {
+        // @ts-ignore
+        const originalResp = originalFn.apply(this, arguments);
+        cb();
+        return originalResp;
+    };
+}
+function onPopState(cb) {
+    window.addEventListener("popstate", () => {
+        cb();
     });
 }

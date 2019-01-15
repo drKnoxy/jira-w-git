@@ -7,6 +7,7 @@ export const API_STATES: { [key: string]: PRstates } = {
   REQUEST_CHANGES: "REQUEST_CHANGES",
   PENDING: "PENDING"
 };
+const TICKET_ID_MISS = "skip";
 
 const get = <T>(url: string): Promise<T> =>
   fetch(url, {
@@ -17,28 +18,22 @@ const get = <T>(url: string): Promise<T> =>
     }
   }).then(res => res.json());
 
-type RESPONSE_PULLS = {
+type RESPONSE_PULL = {
   id: number;
   url: string;
   statuses_url: string;
   state: string;
   title: string;
-  assignees: {
-    login: string;
-    id: number;
-    avatar_url: string;
-  }[];
-  requested_reviewers: {
-    login: string;
-    id: number;
-    avatar_url: string;
-  }[];
-  user: {
-    login: string;
-    id: number;
-    avatar_url: string;
-  };
-}[];
+  assignees: UserShape[];
+  requested_reviewers: UserShape[];
+  user: UserShape;
+};
+type UserShape = {
+  login: string;
+  id: number;
+  avatar_url: string;
+};
+type RESPONSE_PULLS = RESPONSE_PULL[];
 
 export type TPull = {
   ticketID: string;
@@ -57,30 +52,11 @@ export const getPRs = (): Promise<TPull[]> => {
     return prs
       .map(pr => {
         const reviews: TReviews = [...pr.assignees, ...pr.requested_reviewers]
-          .filter(a => a.id !== pr.user.id)
-          .reduce(
-            (prev, a) => ({
-              ...prev,
-              [a.id]: {
-                photo: a.avatar_url,
-                displayName: a.login,
-                state: API_STATES.PENDING
-              }
-            }),
-            {}
-          );
-
-        let ticketID: string;
-        const parsedID = pr.title.match(prTitleRegex);
-        if (parsedID === null) {
-          console.warn("Couldn't parse id from ticket title", { ...pr });
-          ticketID = "skip";
-        } else {
-          ticketID = parsedID[0];
-        }
+          .filter(r => removeReviewerWhoIsOwner(r, pr))
+          .reduce(combineAssigneesAndReviewers, {});
 
         return {
-          ticketID,
+          ticketID: parseTicketIDFromPR(pr),
           title: pr.title,
           owner: {
             photo: pr.user.avatar_url,
@@ -90,7 +66,39 @@ export const getPRs = (): Promise<TPull[]> => {
           url: pr.url
         };
       })
-      .filter(t => t.ticketID === "skip");
+      .filter(removeTicketsWithNoID);
+
+    function combineAssigneesAndReviewers(prev: TReviews, r: UserShape): TReviews {
+      return {
+        ...prev,
+        [r.id]: {
+          photo: r.avatar_url,
+          displayName: r.login,
+          state: API_STATES.PENDING
+        }
+      };
+    }
+
+    function removeReviewerWhoIsOwner(r: UserShape, pr: RESPONSE_PULL): boolean {
+      return r.id !== pr.user.id;
+    }
+
+    function removeTicketsWithNoID(t: TPull): boolean {
+      return t.ticketID !== TICKET_ID_MISS;
+    }
+
+    function parseTicketIDFromPR(pr: RESPONSE_PULL): string {
+      let ticketID: string;
+      const parsedID = pr.title.match(prTitleRegex);
+      if (parsedID === null) {
+        console.warn("Couldn't parse id from ticket title", { ...pr });
+        ticketID = TICKET_ID_MISS;
+      } else {
+        ticketID = parsedID[0];
+      }
+
+      return ticketID;
+    }
   }
 };
 
