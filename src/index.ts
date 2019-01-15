@@ -17,7 +17,8 @@ function main() {
         return;
       }
 
-      btnToolbar.prepend(GithubSyncButton());
+      const target = btnToolbar.querySelector(".github-sync");
+      if (target === null) btnToolbar.prepend(GithubSyncButton());
     }, 300);
   }
 
