@@ -1,10 +1,10 @@
 import * as service from "./service";
-import { h, renderToDOM } from "./h";
-import { parents, logError } from "./utils";
+import { h, renderToDOM, replaceNode, parents, logError, onPopState, onPushState } from "./utils";
 
 main();
 
 function main() {
+  // Mount our button on start, and whenever JS updates the url
   mountGithubSyncButton();
   onPushState(() => mountGithubSyncButton());
   onPopState(() => mountGithubSyncButton());
@@ -21,86 +21,10 @@ function main() {
     }, 300);
   }
 
-  function GithubSyncButton({ innerText }: { innerText?: string } = {}): HTMLElement {
-    return h("button", {
-      type: "button",
-      className: "aui-button github-sync",
-      innerText: innerText || "↯ GitHub",
-      onclick: async () => {
-        replaceNode({
-          target: ".github-sync",
-          tree: GithubSyncButton({
-            innerText: "👯‍♀️ GitHub"
-          })
-        });
-
-        await updateTicketsWithGithubInfo();
-
-        replaceNode({
-          target: ".github-sync",
-          tree: GithubSyncButton()
-        });
-      }
-    });
-  }
-
-  function replaceNode({ tree, target }: { tree: HTMLElement; target: string }) {
-    const el = document.querySelector(target);
-    if (el === null) {
-      logError("Couldn't find node to replace");
-      return;
-    }
-    el.replaceWith(tree);
-  }
-
-  async function updateTicketsWithGithubInfo() {
-    // These jerks overwrote window.fetch
-    // @ts-ignore
-    window.require("atlassian/analytics/user-activity-xhr-header").uninstall();
-
-    try {
-      // Get the data
-      const prs = await service.getPRs();
-      const reviewSets = await Promise.all(prs.map(pr => service.getReviews(pr.url)));
-      const ticketData: service.TPull[] = prs.map((pr, i) => ({
-        ...pr,
-        reviews: {
-          ...pr.reviews,
-          ...reviewSets[i]
-        }
-      }));
-
-      // Render html into each ticket
-      ticketData.forEach(t => {
-        const childTarget = document.querySelector(`.ghx-key > a[title="${t.ticketID}"]`);
-        if (childTarget === null) {
-          logError("Couldn't find child target", t);
-          return;
-        }
-
-        const target = parents(childTarget, ".ghx-issue-content");
-        if (target === false) {
-          logError("Couldn't find parent of target");
-          return;
-        }
-
-        renderToDOM(ticketNotes(t), target[0]);
-      });
-    } catch (error) {
-      logError(error);
-    }
-
-    // Hand over fetch to jira
-    // @ts-ignore
-    window.require("atlassian/analytics/user-activity-xhr-header").install();
-  }
-
   // Add the stylesheet
   const s = document.createElement("style");
   s.type = "text/css";
   s.appendChild(document.createTextNode(getStyles()));
-
-  // @ts-ignore
   document.head.appendChild(s);
 }
 
@@ -186,19 +110,65 @@ function ticketNotes(props: service.TPull) {
   });
 }
 
-function onPushState(cb: () => void) {
-  const originalFn = window.history.pushState;
-  window.history.pushState = function() {
+function GithubSyncButton({ innerText }: { innerText?: string } = {}): HTMLElement {
+  async function updateTicketsWithGithubInfo() {
+    // These jerks overwrote window.fetch
     // @ts-ignore
-    const originalResp = originalFn.apply(this, arguments);
-    cb();
+    window.require("atlassian/analytics/user-activity-xhr-header").uninstall();
 
-    return originalResp;
-  };
-}
+    try {
+      // Get the data
+      const prs = await service.getPRs();
+      const reviewSets = await Promise.all(prs.map(pr => service.getReviews(pr.url)));
+      const ticketData: service.TPull[] = prs.map((pr, i) => ({
+        ...pr,
+        reviews: {
+          ...pr.reviews,
+          ...reviewSets[i]
+        }
+      }));
 
-function onPopState(cb: () => void) {
-  window.addEventListener("popstate", () => {
-    cb();
+      // Render html into each ticket
+      ticketData.forEach(t => {
+        const childTarget = document.querySelector(`.ghx-key > a[title="${t.ticketID}"]`);
+        if (childTarget === null) {
+          logError("Couldn't find child target", t);
+          return;
+        }
+
+        const target = parents(childTarget, ".ghx-issue-content");
+        if (target === false) {
+          logError("Couldn't find parent of target");
+          return;
+        }
+
+        renderToDOM(ticketNotes(t), target[0]);
+      });
+    } catch (error) {
+      logError(error);
+    }
+
+    // Hand over fetch to jira
+    // @ts-ignore
+    window.require("atlassian/analytics/user-activity-xhr-header").install();
+  }
+
+  return h("button", {
+    type: "button",
+    className: "aui-button github-sync",
+    innerText: innerText || "↯ GitHub",
+    onclick: async () => {
+      replaceNode({
+        target: ".github-sync",
+        tree: GithubSyncButton({ innerText: "👯‍♀️ GitHub" })
+      });
+
+      await updateTicketsWithGithubInfo();
+
+      replaceNode({
+        target: ".github-sync",
+        tree: GithubSyncButton()
+      });
+    }
   });
 }
