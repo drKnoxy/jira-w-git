@@ -16,9 +16,11 @@
     // @match        https://jira.lets-point.com:8443/secure/RapidBoard.jspa*
     ```
 
-6. Paste in the code from build/main.js
+6. You can delete all of the lines that don't start with `//`. 
 
-7. Update the fields at the top of the pasted file
+7. Copy the code from [build/main.js](https://github.com/drKnoxy/jira-w-git/blob/master/build/main.js) and paste it into the plugin.
+
+8. Update the fields at the top of the pasted file
 
     - username - Your GitHub username
     - key - The access token from step 1
